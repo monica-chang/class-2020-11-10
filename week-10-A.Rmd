@@ -37,11 +37,33 @@ week_10 <- kenya %>%
 
 * Fit the same stan_glm() model which we used on Thursday: `reg_chg` as a function of `treatment`, `poverty_n` and their interaction. Look at the results. Write a sentence interpreting sigma.
 
+```{r sc1a}
+fit_mod <- stan_glm(reg_chg ~ treatment + poverty_n + treatment*poverty_n,
+         data = week_10,
+         refresh = 0)
+
+print(fit_mod, digits = 4)
+```
+The median value for sigma is 0.0403 represents the standard deviation - 
+how much each individual precinct's reg_chg differs from the mean.
+
 * The root mean square error (also known as RMSE or rmse) is the most common measure for how well a models fits the data. It is the square root of the average of the sum of the residuals squared. (Recall that the residual is defined as the true value minus the fitted value.) Calculate the RMSE by hand. (Hint: Use the `predict()` function with the fitted model object. This will give you the fitted values. Once you have the residual, you just square them, take the sum, and then take the square root of the sum.)
+
+```{r sc1b}
+
+rmse <- tibble(prediction = predict(fit_mod, new_data = week_10),
+          original = week_10$reg_chg) %>%
+  mutate(sq_diff = (original - prediction)^2) %>%
+  summarize(rmse = sqrt(mean(sq_diff)))
+
+```
 
 * Write a sentence or two describing a situation in which RMSE would not be a good metric for choosing among models.
 
-
+RMSE would not be a good metric if you don't care a lot about outliers in your
+data. Because things are squared, RMSE also doesn't care at all about direction.
+It puts equal weight on whether you over-predict or under-predict. If you want
+to differentiate between the two, you may not want to use RMSE.
 
 
 ## Scene 2
@@ -50,9 +72,29 @@ week_10 <- kenya %>%
 
 * Calculate RMSE again by hand. Does it match what you saw above?
 
+```{r sc2a}
+model_choice <- workflow() %>%
+  add_recipe(recipe(reg_chg ~ treatment + poverty_n,
+                    data = week_10)) %>%
+  step_interact(~ treatment*poverty_n) %>%
+  add_model(linear_reg() %>% set_engine("stan")) %>%
+  fit(data = week_10) %>%
+  predict(new_data = week_10)
+
+results <- tibble(truth = week_10$reg_chg,
+                  pred = model_choice$.pred)
+
+results %>%
+  mutate(sq_diff = (pred - truth)^2) %>%
+  summarize(rmse = sqrt(mean(sq_diff)))
+```
+
 * Calculate RMSE using the metrics() argument.
 
-
+```{r sc2b}
+results %>%
+  metrics(truth = truth, estimate = pred)
+```
 
 ## Scene 3
 
@@ -60,9 +102,38 @@ week_10 <- kenya %>%
 
 * Create 4 objects: split, train, test and folds data, just as we do in chapter 10.
 
+```{r sc3a}
+model_wflow<- workflow() %>%
+  add_recipe(recipe(reg_chg ~ treatment + poverty_n,
+                    data = week_10)) %>%
+  step_interact(~ treatment*poverty_n) %>%
+  add_model(linear_reg() %>% set_engine("stan"))
+
+set.seed(9)
+
+split <- initial_split(week_10, prob= 0.8)
+train <- training(split)
+test <- testing(split)
+folds <- vfold_cv(train, v = 10)
+```
+
 * Using the same model as in the previous scene, use cross-validation and report the average RMSE over the assessment samples. Hint: `collect_metrics()`.
 
+```{r sc3b}
+model_wflow %>%
+  fit_resamples(resamples = folds) %>%
+  collect_metrics()
+```
+
 * Using the same model as in the previous scene, fit the model on the training data and test it on the test data. Hint: `metrics()`. Report the RMSE. Why is it so much lower?
+
+```{r sc3c}
+model_wflow %>% 
+  fit(data = train) %>%
+  predict(new_data = test) %>%
+  bind_cols(test %>% select(reg_chg)) %>% 
+  metrics(truth = reg_chg, estimate = `.pred`)
+```
 
 
 
